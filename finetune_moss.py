@@ -49,8 +49,8 @@ class SFTDataset(Dataset):
                 beta_count =1000
                 for index, line in enumerate(f):
                     sample = json.loads(line)
-                    if index==beta_count:
-                        break
+                    #if index==beta_count:
+                    #    break
 
                     chat = sample['chat']
                     num_turns = int(sample['num_turns'])
