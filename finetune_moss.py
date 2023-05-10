@@ -216,7 +216,7 @@ def train(args):
     metric = SFTMetric(device=torch.cuda.current_device())
 
     model.train()
-    for epoch in range(args.n_epochs):
+    for epoch in tqdm(range(args.n_epochs)):
         for batch_cnt, (input_ids, attention_mask, labels) in tqdm(enumerate(train_dataloader)):
             if batch_cnt == 1 and epoch == 0:
                 torch.cuda.empty_cache()
@@ -225,7 +225,7 @@ def train(args):
 
             output = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels, return_dict=True)
             loss = output.loss
-
+            #print('loss:',loss)
             metric(output.logits, labels, loss)
             acc, train_loss = metric.get_metric()
 
@@ -249,13 +249,17 @@ def train(args):
             if global_step % args.eval_step == 0 or global_step == 1:
                 torch.cuda.empty_cache()
                 model.eval() 
-
+                if accelerator.is_main_process:
+                    print('eval...')
+                    pbar = tqdm(total=len(val_dataloader))
                 val_metric = SFTMetric(torch.cuda.current_device())
                 for input_ids, attention_mask, labels in val_dataloader:
                     with torch.no_grad():
                         output = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels, return_dict=True)
 
                     val_metric(output.logits, labels, output.loss)
+                    if accelerator.is_main_process:
+                        pbar.update(1)
 
                 val_acc, val_loss = val_metric.get_metric()
 
@@ -263,7 +267,9 @@ def train(args):
                     writer.add_scalar(f'val_loss', val_loss, global_step=global_step)
                     writer.add_scalar(f'val_acc', val_acc, global_step=global_step)
                     accelerator.print(f"Epoch: {epoch}, Step: {batch_cnt}, Val loss: {val_loss}, Val acc: {val_acc}")
-
+                if accelerator.is_main_process:
+                    print('eval finished!!')
+                    pbar.close()
                 model.train()           
 
             if global_step % args.save_step == 0:
