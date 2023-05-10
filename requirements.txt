@@ -9,3 +9,9 @@ triton
 streamlit
 gradio
 mdtex2html
+accelerate==0.17.1
+numpy==1.24.2
+regex==2022.10.31
+torch==1.13.1+cu117
+tqdm==4.64.1
+transformers==4.25.1

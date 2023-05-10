@@ -6,7 +6,7 @@ import json
 import torch
 import logging
 import argparse
-
+from tqdm import tqdm
 import torch.distributed as dist
 
 from tqdm import tqdm
@@ -46,8 +46,11 @@ class SFTDataset(Dataset):
             self.no_loss_spans = torch.load(no_loss_spans_file, map_location='cpu')
         else:
             with open(os.path.join(self.data_dir, f'{self.data_type}.jsonl'), 'r') as f:
-                for line in f:
+                beta_count =1000
+                for index, line in enumerate(f):
                     sample = json.loads(line)
+                    if index==beta_count:
+                        break
 
                     chat = sample['chat']
                     num_turns = int(sample['num_turns'])
@@ -214,7 +217,7 @@ def train(args):
 
     model.train()
     for epoch in range(args.n_epochs):
-        for batch_cnt, (input_ids, attention_mask, labels) in enumerate(train_dataloader):
+        for batch_cnt, (input_ids, attention_mask, labels) in tqdm(enumerate(train_dataloader)):
             if batch_cnt == 1 and epoch == 0:
                 torch.cuda.empty_cache()
 
