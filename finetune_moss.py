@@ -46,7 +46,7 @@ class SFTDataset(Dataset):
             self.no_loss_spans = torch.load(no_loss_spans_file, map_location='cpu')
         else:
             with open(os.path.join(self.data_dir, f'{self.data_type}.jsonl'), 'r') as f:
-                beta_count =1000
+                #beta_count =100
                 for index, line in enumerate(f):
                     sample = json.loads(line)
                     #if index==beta_count:
@@ -227,7 +227,10 @@ def train(args):
     steps_per_epoch = (len(train_dataloader))
     eval_steps = steps_per_epoch//args.eval_times_per_epoch
     for epoch in tqdm(range(args.n_epochs)):
-        for batch_cnt, (input_ids, attention_mask, labels) in tqdm(enumerate(train_dataloader)):
+        if accelerator.is_main_process:
+            print('train...')
+            pbar_train = tqdm(total=len(train_dataloader))
+        for batch_cnt, (input_ids, attention_mask, labels) in (enumerate(train_dataloader)):
             if batch_cnt == 1 and epoch == 0:
                 torch.cuda.empty_cache()
 
@@ -252,12 +255,14 @@ def train(args):
 
                 logger.info(f"epoch: {epoch}, cureent step: {batch_cnt}, total step: {len(train_dataloader)}, skip:{accelerator.optimizer_step_was_skipped}, loss:{round(train_loss, 3)}, acc:{round(acc, 3)}, length:{len(input_ids[0])}, lr:{lr_scheduler.get_last_lr()[0]}")
 
+                pbar_train.update(1)
+
             if global_step % 3 == 0 and accelerator.is_main_process:
                 writer.add_scalar('skip', int(accelerator.optimizer_step_was_skipped), global_step=global_step)
                 writer.add_scalar('loss', train_loss, global_step=global_step)
                 writer.add_scalar('acc', acc, global_step=global_step)
                 writer.add_scalar('lr', lr_scheduler.get_last_lr()[0], global_step=global_step)
-
+            val_acc = 0
             if global_step % eval_steps == 0:
                 torch.cuda.empty_cache()
                 model.eval() 
@@ -290,13 +295,14 @@ def train(args):
                     pbar.close()
                 model.train()           
 
-            if accelerator.is_main_process and val_acc>best_acc:
-                best_acc = val_acc
-                model.save_checkpoint(args.output_dir, global_step)
-                logger.info("*"*10+'\n')
-                logger.info(f'best val_acc', val_acc, global_step=global_step)
+                if accelerator.is_main_process and val_acc>best_acc:
+                    best_acc = val_acc
+                    model.save_checkpoint(args.output_dir, global_step)
+                    logger.info("*"*10+'\n')
+                    logger.info(f'best val_acc', val_acc, global_step=global_step)
 
-
+        if accelerator.is_main_process:
+            pbar_train.close()
     #if global_step % args.save_step != 0:
     #    model.save_checkpoint(args.output_dir, global_step)
 

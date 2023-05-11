@@ -13,8 +13,8 @@ accelerate launch \
 	--output_dir ../output/bloom3b-sft-2 \
 	--log_dir ../output/train_logs/bloom3b-sft \
 	--n_epochs 10 \
-	--train_bsz_per_gpu 2 \
-	--eval_bsz_per_gpu 2 \
+	--train_bsz_per_gpu 1 \
+	--eval_bsz_per_gpu 1 \
 	--learning_rate 0.000015 \
 	--max_seq_len 1024 \
     --eval_times_per_epoch 2
