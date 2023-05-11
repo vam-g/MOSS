@@ -165,6 +165,10 @@ class SFTMetric:
 
 def train(args):
 
+
+    file_handler = logging.FileHandler(os.path.join(args.output_dir, 'logger.txt'))
+    logger.addHandler(file_handler)
+
     # deepspeed needs to know your gradient accumulation steps before hand, so don't forget to pass it
     # Remember you still need to do gradient accumulation by yourself, just like you would have done without deepspeed
     # deepspeed_plugin = DeepSpeedPlugin(zero_stage=3, gradient_accumulation_steps=1)
@@ -216,6 +220,12 @@ def train(args):
     metric = SFTMetric(device=torch.cuda.current_device())
 
     model.train()
+
+    best_acc = -float('inf')
+    logger.info(f"total step: {len(train_dataloader)}")
+
+    steps_per_epoch = (len(train_dataloader))
+    eval_steps = steps_per_epoch//args.eval_times_per_epoch
     for epoch in tqdm(range(args.n_epochs)):
         for batch_cnt, (input_ids, attention_mask, labels) in tqdm(enumerate(train_dataloader)):
             if batch_cnt == 1 and epoch == 0:
@@ -240,13 +250,15 @@ def train(args):
             if accelerator.is_main_process:
                 accelerator.print(f"epoch: {epoch}, cureent step: {batch_cnt}, total step: {len(train_dataloader)}, skip:{accelerator.optimizer_step_was_skipped}, loss:{round(train_loss, 3)}, acc:{round(acc, 3)}, length:{len(input_ids[0])}, lr:{lr_scheduler.get_last_lr()[0]}")
 
+                logger.info(f"epoch: {epoch}, cureent step: {batch_cnt}, total step: {len(train_dataloader)}, skip:{accelerator.optimizer_step_was_skipped}, loss:{round(train_loss, 3)}, acc:{round(acc, 3)}, length:{len(input_ids[0])}, lr:{lr_scheduler.get_last_lr()[0]}")
+
             if global_step % 3 == 0 and accelerator.is_main_process:
                 writer.add_scalar('skip', int(accelerator.optimizer_step_was_skipped), global_step=global_step)
                 writer.add_scalar('loss', train_loss, global_step=global_step)
                 writer.add_scalar('acc', acc, global_step=global_step)
                 writer.add_scalar('lr', lr_scheduler.get_last_lr()[0], global_step=global_step)
 
-            if global_step % args.eval_step == 0 or global_step == 1:
+            if global_step % eval_steps == 0:
                 torch.cuda.empty_cache()
                 model.eval() 
                 if accelerator.is_main_process:
@@ -263,20 +275,30 @@ def train(args):
 
                 val_acc, val_loss = val_metric.get_metric()
 
+                
+                    
                 if accelerator.is_local_main_process:
                     writer.add_scalar(f'val_loss', val_loss, global_step=global_step)
                     writer.add_scalar(f'val_acc', val_acc, global_step=global_step)
                     accelerator.print(f"Epoch: {epoch}, Step: {batch_cnt}, Val loss: {val_loss}, Val acc: {val_acc}")
+
+                    logger.info(f'val_loss:{val_loss}, global_step{global_step}' )
+                    logger.info(f'val_acc:{val_acc},global_step:{global_step}')
+                    logger.info(f"Epoch: {epoch}, Step: {batch_cnt}, Val loss: {val_loss}, Val acc: {val_acc}")
                 if accelerator.is_main_process:
                     print('eval finished!!')
                     pbar.close()
                 model.train()           
 
-            if global_step % args.save_step == 0:
+            if accelerator.is_main_process and val_acc>best_acc:
+                best_acc = val_acc
                 model.save_checkpoint(args.output_dir, global_step)
+                logger.info("*"*10+'\n')
+                logger.info(f'best val_acc', val_acc, global_step=global_step)
 
-    if global_step % args.save_step != 0:
-        model.save_checkpoint(args.output_dir, global_step)
+
+    #if global_step % args.save_step != 0:
+    #    model.save_checkpoint(args.output_dir, global_step)
 
 
 if __name__ == '__main__':
@@ -298,6 +320,8 @@ if __name__ == '__main__':
     parser.add_argument('--learning_rate', default=9e-6, type=float)
     parser.add_argument('--warmup_rates', default=0.05, type=int)
     parser.add_argument('--n_epochs', default=2, type=int)
+    parser.add_argument('--eval_times_per_epoch', default=2, type=int)
+    
 
     # Other Args
     parser.add_argument('--save_step', default=3000, type=int)

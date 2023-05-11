@@ -10,12 +10,11 @@ accelerate launch \
 	--deepspeed_multinode_launcher standard finetune_moss.py \
 	--model_name_or_path /root/leyf/poj/bloom3b_yj/bloom-3B \
 	--data_dir ../data/split_data/ \
-	--output_dir ../output/bloom3b-sft \
+	--output_dir ../output/bloom3b-sft-2 \
 	--log_dir ../output/train_logs/bloom3b-sft \
-	--n_epochs 2 \
-	--train_bsz_per_gpu 1 \
-	--eval_bsz_per_gpu 1 \
+	--n_epochs 10 \
+	--train_bsz_per_gpu 2 \
+	--eval_bsz_per_gpu 2 \
 	--learning_rate 0.000015 \
-	--eval_step 200 \
-	--save_step 2000 \
-	--max_seq_len 1024
+	--max_seq_len 1024 \
+    --eval_times_per_epoch 2
