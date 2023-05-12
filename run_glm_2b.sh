@@ -11,7 +11,7 @@ accelerate launch \
 	--model_name_or_path /root/leyf/poj/bloom3b_yj/bloom-3B \
 	--data_dir ../data/split_data/ \
 	--output_dir ../output/bloom3b-sft-2 \
-	--log_dir ../output/train_logs/bloom3b-sft \
+	--log_dir ../output/train_logs/bloom3b-sft-2 \
 	--n_epochs 10 \
 	--train_bsz_per_gpu 1 \
 	--eval_bsz_per_gpu 1 \

@@ -96,6 +96,7 @@ class SFTDataset(Dataset):
             torch.save(self.no_loss_spans, no_loss_spans_file)
 
         logger.info(f"Load data successfully, total {len(self.data)} training samples")
+        #self.data = self.data[:100]
 
     def __len__(self):
         return len(self.data)
@@ -295,11 +296,12 @@ def train(args):
                     pbar.close()
                 model.train()           
 
-                if accelerator.is_main_process and val_acc>best_acc:
+                if val_acc>best_acc:
                     best_acc = val_acc
                     model.save_checkpoint(args.output_dir, global_step)
                     logger.info("*"*10+'\n')
-                    logger.info(f'best val_acc', val_acc, global_step=global_step)
+                    logger.info(f'best val_acc:f{val_acc},global_step:{global_step}')
+                    #accelerator.barrier()
 
         if accelerator.is_main_process:
             pbar_train.close()
