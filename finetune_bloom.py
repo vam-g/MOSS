@@ -182,7 +182,7 @@ def train(args):
     # deepspeed_plugin.deepspeed_config['train_micro_batch_size_per_gpu'] = 2
     accelerator = Accelerator(mixed_precision='fp16') 
 
-    if accelerator.is_main_process:
+    if accelerator.is_local_main_process:
         writer = SummaryWriter(args.log_dir)
         writer.add_hparams(vars(args), {})
 
@@ -239,7 +239,7 @@ def train(args):
     steps_per_epoch = (len(train_dataloader))
     eval_steps = steps_per_epoch//args.eval_times_per_epoch
     for epoch in tqdm(range(args.n_epochs)):
-        if accelerator.is_main_process:
+        if accelerator.is_local_main_process:
             print('train...')
             pbar_train = tqdm(total=len(train_dataloader))
         for batch_cnt, (input_ids, attention_mask, labels) in (enumerate(train_dataloader)):
@@ -262,14 +262,14 @@ def train(args):
 
             global_step += 1
 
-            if accelerator.is_main_process:
+            if accelerator.is_local_main_process:
                 accelerator.print(f"epoch: {epoch}, cureent step: {batch_cnt}, total step: {len(train_dataloader)}, skip:{accelerator.optimizer_step_was_skipped}, loss:{round(train_loss, 3)}, acc:{round(acc, 3)}, length:{len(input_ids[0])}, lr:{lr_scheduler.get_last_lr()[0]}")
 
                 logger.info(f"epoch: {epoch}, cureent step: {batch_cnt}, total step: {len(train_dataloader)}, skip:{accelerator.optimizer_step_was_skipped}, loss:{round(train_loss, 3)}, acc:{round(acc, 3)}, length:{len(input_ids[0])}, lr:{lr_scheduler.get_last_lr()[0]}")
 
                 pbar_train.update(1)
 
-            if global_step % 3 == 0 and accelerator.is_main_process:
+            if global_step % 3 == 0 and accelerator.is_local_main_process:
                 writer.add_scalar('skip', int(accelerator.optimizer_step_was_skipped), global_step=global_step)
                 writer.add_scalar('loss', train_loss, global_step=global_step)
                 writer.add_scalar('acc', acc, global_step=global_step)
@@ -278,7 +278,7 @@ def train(args):
             if global_step % eval_steps == 0:
                 torch.cuda.empty_cache()
                 model.eval() 
-                if accelerator.is_main_process:
+                if accelerator.is_local_main_process:
                     print('eval...')
                     pbar = tqdm(total=len(val_dataloader))
                 val_metric = SFTMetric(torch.cuda.current_device())
@@ -287,7 +287,7 @@ def train(args):
                         output = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels, return_dict=True)
 
                     val_metric(output.logits, labels, output.loss)
-                    if accelerator.is_main_process:
+                    if accelerator.is_local_main_process:
                         pbar.update(1)
 
                 val_acc, val_loss = val_metric.get_metric()
@@ -302,7 +302,7 @@ def train(args):
                     logger.info(f'val_loss:{val_loss}, global_step{global_step}' )
                     logger.info(f'val_acc:{val_acc},global_step:{global_step}')
                     logger.info(f"Epoch: {epoch}, Step: {batch_cnt}, Val loss: {val_loss}, Val acc: {val_acc}")
-                if accelerator.is_main_process:
+                if accelerator.is_local_main_process:
                     print('eval finished!!')
                     pbar.close()
                 model.train()           
@@ -314,7 +314,7 @@ def train(args):
                     logger.info(f'best val_acc:f{val_acc},global_step:{global_step}')
                     #accelerator.barrier()
 
-        if accelerator.is_main_process:
+        if accelerator.is_local_main_process:
             pbar_train.close()
     #if global_step % args.save_step != 0:
     #    model.save_checkpoint(args.output_dir, global_step)
