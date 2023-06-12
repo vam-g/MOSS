@@ -297,14 +297,15 @@ def train():
     model.train()
 
     #best_acc = -float('inf')
-    logger.info(f"total step: {len(train_dataset)}")
+    logger.info(f"single train_len: {len(train_dataset)}")
 
     # setting trainer step
-    steps_per_epoch = (len(train_dataset))
-    eval_steps = steps_per_epoch//own_args.eval_times_per_epoch
-    
+    steps_per_epoch = (len(train_dataset))//training_args.per_device_train_batch_size
+    #eval_steps = steps_per_epoch//own_args.eval_times_per_epoch
+    #logger.info(f"eval step: {len(eval_steps)}")
     val_training_args = vars(training_args)
-    val_training_args['eval_steps'] = eval_steps
+    #val_training_args['eval_steps'] = eval_steps
+    logger.info(f"eval steps: {val_training_args['eval_steps']}")
 
     # Initialize our Trainer
     trainer = Trainer(

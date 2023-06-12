@@ -20,11 +20,11 @@ python -m torch.distributed.run --nproc_per_node=7 --nnode=2 --node_rank=0 \
     --save_total_limit=2 \
     --log_on_each_node=False \
     --logging_nan_inf_filter=False \
-    --gradient_accumulation_steps=4 \
+    --gradient_accumulation_steps=1 \
 	--per_device_train_batch_size 4 \
 	--learning_rate 0.000015 \
 	--block_size 2048 \
-    --eval_times_per_epoch 2 \
+    --eval_steps 500 \
     --seed 2023 \
     --gradient_checkpointing=True \
     --deepspeed ./configs/trainer_ds.json 
