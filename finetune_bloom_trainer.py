@@ -247,10 +247,10 @@ def train():
     special_tokens_dict = {'additional_special_tokens': ['<eoc>','<eoh>','<eom>','<eor>','<eot>','[Human]','[MOSS]']}
     tokenizer.add_special_tokens(special_tokens_dict)
     model.resize_token_embeddings(len(tokenizer))
-    model.transformer.gradient_checkpointing = True
+    #model.transformer.gradient_checkpointing = True
 
 
-    assert model.transformer.gradient_checkpointing is True
+    #assert model.transformer.gradient_checkpointing is True
 
     # Optimizer
     # Split weights in two groups, one with weight decay and the other not.
