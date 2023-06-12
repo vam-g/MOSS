@@ -244,7 +244,8 @@ def train():
 
     
     # add special token
-    special_tokens_dict = {'additional_special_tokens': ['<eoc>','<eoh>','<eom>','<eor>','<eot>','[Human]','[MOSS]']}
+    special_tokens_dict = {'additional_special_tokens': ['<eoc>','<eoh>','<eom>','<eor>','<eot>','[Human]','[MOSS]','<|Inner Thoughts|>','<|Commands|>',
+    '<|Results|>']}
     tokenizer.add_special_tokens(special_tokens_dict)
     model.resize_token_embeddings(len(tokenizer))
     #model.transformer.gradient_checkpointing = True
