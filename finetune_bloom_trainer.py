@@ -47,7 +47,7 @@ class SFTDataset(Dataset):
         self.load_data()
 
     def load_data(self):
-        do_beta = True
+        do_beta = False
         logger.info("Loading data...")
         data_file = os.path.join(self.data_dir, f'{self.data_type}_data')
         no_loss_spans_file = os.path.join(self.data_dir, f'{self.data_type}_no_loss_spans')
