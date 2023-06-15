@@ -70,8 +70,19 @@ def main():
             prompt = meta_instruction
             continue
         #prompt = '<|Human|>: ' + query + '<eoh>'
+        # logging
+        logger.info('*'*20)
         prompt = query  #meta_instruction+ f"[Human]: {query}<eoh>\n<|Inner Thoughts|>: None<eot>\n<|Commands|>: None<eoc>\n<|Results|>: None<eor>\n[MOSS]: "
         inputs = tokenizer(prompt, return_tensors="pt")
+        singlesample_token_id = inputs.input_ids[0]
+        singlesample_token = tokenizer.convert_ids_to_tokens(singlesample_token_id)
+        logger.info(f'input text:{prompt}')
+        logger.info(f'input text token id:{singlesample_token_id}')
+        logger.info(f'input text tokenid2token:{singlesample_token}')
+        assert len(singlesample_token)==len(singlesample_token_id)
+        for it_id, it_tk in zip(singlesample_token_id, singlesample_token):
+            logger.info(f'token:{it_tk}---> id:{it_id}\n')
+
         t_response = ''
         with torch.no_grad():
             #print(inputs.input_ids)
@@ -84,12 +95,23 @@ def main():
                 top_k=40, #top_p=0.8, temperature=0.7, repetition_penalty=1.02,
                 num_return_sequences=1, #eos_token_id=106068,
                 pad_token_id=tokenizer.pad_token_id)
+            
+            # generate
+            
+            singlesample_token_id = outputs[0]
+            singlesample_token = tokenizer.convert_ids_to_tokens(singlesample_token_id)
+            
+            logger.info(f'generate text token id:{singlesample_token_id}')
+            logger.info(f'generate text tokenid2token:{singlesample_token}')
+            assert len(singlesample_token)==len(singlesample_token_id)
+            for it_id, it_tk in zip(singlesample_token_id, singlesample_token):
+                logger.info(f'token:{it_tk}---> id:{it_id}\n')
+                
             response = tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
             prompt += response
             print(response.lstrip('\n')) #去掉多余的生成
             t_response = response.lstrip('\n')
-        # logging
-        logger.info('*'*20)
+        
         logger.info(f'time:{datetime.now()}')
         logger.info(f'Question:{query}')
         logger.info(f'Answer:{t_response}')
