@@ -78,6 +78,7 @@ def main():
         singlesample_token = tokenizer.convert_ids_to_tokens(singlesample_token_id)
         logger.info(f'input text:{prompt}')
         logger.info(f'input text token id:{singlesample_token_id}')
+        logger.info(f'input text attention_mask:{inputs.attention_mask}')
         logger.info(f'input text tokenid2token:{singlesample_token}')
         assert len(singlesample_token)==len(singlesample_token_id)
         for it_id, it_tk in zip(singlesample_token_id, singlesample_token):
@@ -92,7 +93,7 @@ def main():
                 attention_mask=inputs.attention_mask.cuda(), 
                 max_length=200, 
                 do_sample=False, 
-                top_k=40, #top_p=0.8, temperature=0.7, repetition_penalty=1.02,
+                top_k=1, #top_p=0.8, temperature=0.7, repetition_penalty=1.02,
                 num_return_sequences=1, #eos_token_id=106068,
                 pad_token_id=tokenizer.pad_token_id)
             
