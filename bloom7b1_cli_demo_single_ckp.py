@@ -33,7 +33,7 @@ parser.add_argument("--gpu", default="0", type=str)
 parser.add_argument("--output_dir", default="/mnt/application/leyf/llm_zoo/mmm/output/20230606bloom7b1-duojiduoka", 
                      type=str)
 args = parser.parse_args()
-accelerator = Accelerator(mixed_precision='fp16') 
+#accelerator = Accelerator(mixed_precision='fp16') 
 os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 num_gpus = len(args.gpu.split(","))
 
@@ -68,8 +68,8 @@ if num_gpus > 1:
       #model = load_checkpoint_and_dispatch(
       #   raw_model, model_path, device_map="auto", no_split_module_classes=["MossBlock"], dtype=torch.float16
       # )
-    unwrapped_model = accelerator.unwrap_model(model)
-    model = load_state_dict_from_zero_checkpoint(unwrapped_model, args.output_dir).cuda()
+    #unwrapped_model = accelerator.unwrap_model(model)
+    model.load_state_dict(torch.load(os.path.join(args.output_dir,'pytorch_model.bin'), map_location=torch.device('cuda')),strict =True)
 else: # on a single gpu
     model = AutoModelForCausalLM.from_pretrained(args.model_name, trust_remote_code=True, use_cache=False)
     # add special token
@@ -77,10 +77,11 @@ else: # on a single gpu
     tokenizer.add_special_tokens(special_tokens_dict)
     model.resize_token_embeddings(len(tokenizer))
       
-    unwrapped_model = accelerator.unwrap_model(model)
-    model = load_state_dict_from_zero_checkpoint(unwrapped_model, args.output_dir).cuda()
+    #unwrapped_model = accelerator.unwrap_model(model)
+    model.load_state_dict(torch.load(os.path.join(args.output_dir,'pytorch_model.bin'), map_location=torch.device('cuda')),strict =True)
 #print('model,', model)
 
+model.cuda()
 #torch.save(model.state_dict(), os.path.join( args.output_dir, "pytorch_model.bin"))
 
 def clear():

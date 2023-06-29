@@ -26,11 +26,13 @@ from deepspeed.utils.zero_to_fp32 import load_state_dict_from_zero_checkpoint
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--model_name", default="/mnt/application/leyf/llm_zoo/bloom3b_yj/bloom-3B/", 
+parser.add_argument("--model_name", default="/mnt/application/leyf/llm_zoo/bloom7b1", 
                     choices=[""], type=str)
 parser.add_argument("--gpu", default="0", type=str)
-parser.add_argument("--output_dir", default="/mnt/application/leyf/ds_chat/rlhf_output/bloom3b_org/actor", 
+parser.add_argument("--output_dir", default="/mnt/application/leyf/llm_zoo/mmm/output/20230606bloom7b1-duojiduoka", 
                      type=str)
+
+
 args = parser.parse_args()
 accelerator = Accelerator(mixed_precision='fp16') 
 os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
@@ -54,6 +56,7 @@ model_path = args.model_name
 
 #config = MossConfig.from_pretrained(model_path)
 tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
+is_rlhf = False
 if num_gpus > 1:  
     print("Waiting for all devices to be ready, it may take a few minutes...")
     model = AutoModelForCausalLM.from_pretrained(args.model_name, trust_remote_code=True, use_cache=False)
@@ -65,12 +68,12 @@ if num_gpus > 1:
       #model = load_checkpoint_and_dispatch(
       #   raw_model, model_path, device_map="auto", no_split_module_classes=["MossBlock"], dtype=torch.float16
       # )
-
-    model.config.end_token_id = tokenizer.eos_token_id
-    model.config.pad_token_id = model.config.eos_token_id
-    model.resize_token_embeddings(int(
-        8 *
-        math.ceil(len(tokenizer) / 8.0)))
+    if is_rlhf:
+        model.config.end_token_id = tokenizer.eos_token_id
+        model.config.pad_token_id = model.config.eos_token_id
+        model.resize_token_embeddings(int(
+            8 *
+            math.ceil(len(tokenizer) / 8.0)))
     model.load_state_dict(torch.load(os.path.join(args.output_dir,'pytorch_model.bin'), map_location=torch.device('cuda')),strict =True)
     model.cuda()
 else: # on a single gpu
@@ -85,11 +88,12 @@ else: # on a single gpu
       #   raw_model, model_path, device_map="auto", no_split_module_classes=["MossBlock"], dtype=torch.float16
       # )
 
-    model.config.end_token_id = tokenizer.eos_token_id
-    model.config.pad_token_id = model.config.eos_token_id
-    model.resize_token_embeddings(int(
-        8 *
-        math.ceil(len(tokenizer) / 8.0)))
+    if is_rlhf:
+        model.config.end_token_id = tokenizer.eos_token_id
+        model.config.pad_token_id = model.config.eos_token_id
+        model.resize_token_embeddings(int(
+            8 *
+            math.ceil(len(tokenizer) / 8.0)))
 
 
     model.load_state_dict(torch.load(os.path.join(args.output_dir,'pytorch_model.bin'), map_location=torch.device('cuda')),strict =True)
