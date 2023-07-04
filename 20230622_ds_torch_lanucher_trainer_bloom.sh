@@ -26,6 +26,7 @@ python -m torch.distributed.run --nproc_per_node=6 --nnode=1 --node_rank=0 \
     --logging_nan_inf_filter=False \
     --gradient_accumulation_steps=1 \
 	--per_device_train_batch_size 1 \
+    --per_device_eval_batch_size 1 \
 	--learning_rate 0.000015 \
 	--block_size 2048 \
     --eval_steps 500 \
