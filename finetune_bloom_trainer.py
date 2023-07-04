@@ -5,6 +5,22 @@ import copy
 import json
 import torch
 import logging
+logging.basicConfig(
+    format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
+    datefmt='%m/%d/%Y %H:%M:%S',
+    level=logging.INFO)
+logger = logging.getLogger(__name__)
+LOG_DIR = '../output/logging/'
+if not os.path.exists(LOG_DIR):
+    os.makedirs(LOG_DIR)
+logging.basicConfig(
+    filename=LOG_DIR+__name__+'.log',
+    format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
+    datefmt='%m/%d/%Y %H:%M:%S',
+    level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
 import argparse
 from tqdm import tqdm
 import torch.distributed as dist
@@ -23,11 +39,7 @@ import transformers
 import evaluate
 import math
 
-logging.basicConfig(
-    format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
-    datefmt='%m/%d/%Y %H:%M:%S',
-    level=logging.INFO)
-logger = logging.getLogger(__name__)
+
 
 
 class SFTDataset(Dataset):
@@ -220,8 +232,8 @@ def train():
 
     model_args, data_args, training_args, own_args = parser.parse_args_into_dataclasses()
     os.makedirs(training_args.output_dir,exist_ok=True)
-    file_handler = logging.FileHandler(os.path.join(training_args.output_dir, 'logger.txt'))
-    logger.addHandler(file_handler)
+    #file_handler = logging.FileHandler(os.path.join(training_args.output_dir, 'logger.txt'))
+    #logger.addHandler(file_handler)
 
     set_seed(training_args.seed)
 
