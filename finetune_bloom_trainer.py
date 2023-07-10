@@ -43,7 +43,7 @@ import math
 
 
 class SFTDataset(Dataset):
-    def __init__(self, data_dir, tokenizer, block_size=2048,  data_type='train'):
+    def __init__(self, data_dir, tokenizer, block_size=512,  data_type='train'):
         super().__init__()
 
         self.data_dir = data_dir
