@@ -1,15 +1,15 @@
 export NCCL_IB_DISABLE=1
 export TOKENIZERS_PARALLELISM=true
-export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
-output_dir=20230717_less_special_token_3epoch_ds_trainer_bloom3b
+#export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+output_dir=20230717_moss_ds_special_token_3epoch_ds_trainer_bloom3b
 export WANDB_PROJECT=$output_dir
 
 mkdir -p ../output/train_logs/$output_dir
-python -m torch.distributed.run --nproc_per_node=8 --nnode=1 --node_rank=0 \
+deepspeed --deepspeed_config=./configs/trainer_ds.json  --nproc_per_node=8 --nnode=1 --node_rank=0 \
     --master_addr "wxhd11" \
     --master_port=9904 \
-    finetune_bloom_trainer.py \
-	--model_name_or_path /mnt/application/leyf/llm_zoo/bloom3b_yj/bloom-3B \
+    finetune_moss_deepspeed.py \
+	--model_name_or_path /mnt/application/leyf/llm_zoo/mmm/PLM \
     --do_train \
     --overwrite_output_dir \
     --num_train_epochs 3 \
@@ -31,4 +31,4 @@ python -m torch.distributed.run --nproc_per_node=8 --nnode=1 --node_rank=0 \
     --seed 2023 \
     --report_to wandb \
     --gradient_checkpointing=True \
-    --deepspeed ./configs/trainer_ds.json &> ../output/train_logs/$output_dir/training.log
+    &> ../output/train_logs/$output_dir/training.log

@@ -8,9 +8,7 @@ import logging
 import argparse
 from tqdm import tqdm
 import torch.distributed as dist
-from tqdm import tqdm
-import copy
-import pandas as pd
+import deepspeed 
 
 from tqdm import tqdm
 from accelerate import Accelerator
@@ -41,7 +39,6 @@ class SFTDataset(Dataset):
         self.load_data()
 
     def load_data(self):
-        do_beta = False
         logger.info("Loading data...")
         data_file = os.path.join(self.data_dir, f'{self.data_type}_data')
         no_loss_spans_file = os.path.join(self.data_dir, f'{self.data_type}_no_loss_spans')
@@ -50,14 +47,11 @@ class SFTDataset(Dataset):
             self.no_loss_spans = torch.load(no_loss_spans_file, map_location='cpu')
         else:
             with open(os.path.join(self.data_dir, f'{self.data_type}.jsonl'), 'r') as f:
-                
-                beta_count =10000
-                all_samples = []
-                for index, line in tqdm(enumerate(f)):
-                    single_sample = {'prompt':'','chosen':'','rejected':''}
+                #beta_count =100
+                for index, line in enumerate(f):
                     sample = json.loads(line)
-                    if do_beta and index==beta_count:
-                        break
+                    #if index==beta_count:
+                    #    break
 
                     chat = sample['chat']
                     num_turns = int(sample['num_turns'])
@@ -66,7 +60,6 @@ class SFTDataset(Dataset):
                     instruction_ids = self.tokenizer.encode(meta_instruction)
                     assert isinstance(instruction_ids, list) and len(instruction_ids) > 0
                     
-                    single_sample['prompt']+=meta_instruction
                     input_ids = copy.deepcopy(instruction_ids)
                     no_loss_spans = [(0, len(instruction_ids))]
 
@@ -75,15 +68,7 @@ class SFTDataset(Dataset):
                         cur_no_loss_spans = []
                         cur_turn = chat[f'turn_{i+1}']
                         for key, value in cur_turn.items():
-                            if key=='MOSS':
-                                single_sample['chosen'] = value
-                                single_sp_cp = copy.deepcopy(single_sample)
-                                # 触发词 debug
-                                single_sp_cp['prompt'] = single_sp_cp['prompt']+'[MOSS]:'
-                                all_samples.append(single_sp_cp)
-                                single_sample['prompt']+=value
-                            else:
-                                single_sample['prompt']+=value
+
                             cur_ids = self.tokenizer.encode(value)
 
                             if key == 'Tool Responses':
@@ -107,29 +92,12 @@ class SFTDataset(Dataset):
 
                     self.data.append(input_ids)
                     self.no_loss_spans.append(no_loss_spans)
-            # 保存
-            prompt=[]
-            chosen=[]
-            rejected=[]
-            for entry in all_samples:
-                prompt.append(entry['prompt'])
-                chosen.append(entry['chosen'])
-                rejected.append(entry['rejected'])
-            df_train=pd.DataFrame({'prompt':prompt, 'chosen':chosen,'rejected':rejected})
-            #import os
-            os.makedirs('../data/rlhf_step3/', exist_ok=True)
-            if self.data_type=='train':
-                df_train.to_csv('../data/rlhf_step3/'+'train.csv', index=False)
-            else:
-                df_train.to_csv('../data/rlhf_step3/'+'eval.csv', index=False)
+            
+            torch.save(self.data, data_file)
+            torch.save(self.no_loss_spans, no_loss_spans_file)
 
-
-        
         logger.info(f"Load data successfully, total {len(self.data)} training samples")
         #self.data = self.data[:100]
-        # first inputid2string
-        print("first inputid2string:", self.tokenizer.decode(self.data[0]))
-        logger.info(f"first inputid2string:{self.tokenizer.decode(self.data[0])}")
 
     def __len__(self):
         return len(self.data)
@@ -200,40 +168,170 @@ class SFTMetric:
 def train(args):
 
 
-    file_handler = logging.FileHandler(os.path.join(args.output_dir, 'logger.txt'))
-    logger.addHandler(file_handler)
+    #file_handler = logging.FileHandler(os.path.join(args.output_dir, 'logger.txt'))
+    #logger.addHandler(file_handler)
 
     # deepspeed needs to know your gradient accumulation steps before hand, so don't forget to pass it
     # Remember you still need to do gradient accumulation by yourself, just like you would have done without deepspeed
     # deepspeed_plugin = DeepSpeedPlugin(zero_stage=3, gradient_accumulation_steps=1)
     # deepspeed_plugin.deepspeed_config['train_micro_batch_size_per_gpu'] = 2
-    accelerator = Accelerator(mixed_precision='fp16') 
+    #accelerator = Accelerator(mixed_precision='fp16') 
 
-    #if accelerator.is_local_main_process:
-    #    writer = SummaryWriter(args.log_dir)
-    #    writer.add_hparams(vars(args), {})
+    if False and accelerator.is_main_process:
+        writer = SummaryWriter(args.log_dir)
+        writer.add_hparams(vars(args), {})
 
     #accelerator.state.deepspeed_plugin.deepspeed_config['train_micro_batch_size_per_gpu'] = args.train_bsz_per_gpu
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
-    
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, trust_remote_code=True)
+    tokenizer.eos_token_id = 106068 # The eos_token_id of base model is 106028. We need map the eos token to <eom> (its token id is 106068)
+
+    model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, trust_remote_code=True, use_cache=False)
+
+    model.transformer.gradient_checkpointing = True
+    assert model.transformer.gradient_checkpointing is True
+
+    # Optimizer
+    # Split weights in two groups, one with weight decay and the other not.
+    no_decay = ["bias", "LayerNorm.weight"]
+    optimizer_grouped_parameters = [
+        {
+            "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+            "weight_decay": args.weight_decay,
+        },
+        {
+            "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
+            "weight_decay": 0.0,
+        },
+    ]
+
+    optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=args.learning_rate)
+
     train_dataset = SFTDataset(args.data_dir, tokenizer)
     train_dataloader = DataLoader(train_dataset, batch_size=args.train_bsz_per_gpu, shuffle=True, drop_last=True, collate_fn=train_dataset.collate_fn)
 
     val_dataset = SFTDataset(args.data_dir, tokenizer, data_type='val')
     val_dataloader = DataLoader(val_dataset, batch_size=args.eval_bsz_per_gpu, shuffle=False, drop_last=True, collate_fn=train_dataset.collate_fn)
 
+    num_training_steps = (len(train_dataloader) * args.n_epochs) #// #accelerator.gradient_accumulation_steps
+    lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=int(args.warmup_rates * num_training_steps), num_training_steps=num_training_steps)
+
+    #model, optimizer, train_dataloader, val_dataloader, lr_scheduler = accelerator.prepare(model, optimizer, train_dataloader, val_dataloader, lr_scheduler)
+
+    engine, _, _, _ = deepspeed.initialize(
+    args=args,
+    model=model,
+    model_parameters=[p for p in model.parameters() if model.requires_grad],
+    training_data=train_dataset)
+    for step in range(args.steps):
+        loss = engine.train_batch()
+        print('ds loss:', loss)
+
+
+    if False:
+
+        global_step = 0
+        metric = SFTMetric(device=torch.cuda.current_device())
+
+        model.train()
+
+        best_acc = -float('inf')
+        logger.info(f"total step: {len(train_dataloader)}")
+
+        steps_per_epoch = (len(train_dataloader))
+        eval_steps = steps_per_epoch//args.eval_times_per_epoch
+        for epoch in tqdm(range(args.n_epochs)):
+            if accelerator.is_main_process:
+                print('train...')
+                pbar_train = tqdm(total=len(train_dataloader))
+            for batch_cnt, (input_ids, attention_mask, labels) in (enumerate(train_dataloader)):
+                if batch_cnt == 1 and epoch == 0:
+                    torch.cuda.empty_cache()
+
+                optimizer.zero_grad()
+
+                output = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels, return_dict=True)
+                loss = output.loss
+                #print('loss:',loss)
+                metric(output.logits, labels, loss)
+                acc, train_loss = metric.get_metric()
+
+                accelerator.backward(loss)
+                optimizer.step()
+
+                if not accelerator.optimizer_step_was_skipped:
+                    lr_scheduler.step()
+
+                global_step += 1
+
+                if accelerator.is_main_process:
+                    accelerator.print(f"epoch: {epoch}, cureent step: {batch_cnt}, total step: {len(train_dataloader)}, skip:{accelerator.optimizer_step_was_skipped}, loss:{round(train_loss, 3)}, acc:{round(acc, 3)}, length:{len(input_ids[0])}, lr:{lr_scheduler.get_last_lr()[0]}")
+
+                    logger.info(f"epoch: {epoch}, cureent step: {batch_cnt}, total step: {len(train_dataloader)}, skip:{accelerator.optimizer_step_was_skipped}, loss:{round(train_loss, 3)}, acc:{round(acc, 3)}, length:{len(input_ids[0])}, lr:{lr_scheduler.get_last_lr()[0]}")
+
+                    pbar_train.update(1)
+
+                if global_step % 3 == 0 and accelerator.is_main_process:
+                    writer.add_scalar('skip', int(accelerator.optimizer_step_was_skipped), global_step=global_step)
+                    writer.add_scalar('loss', train_loss, global_step=global_step)
+                    writer.add_scalar('acc', acc, global_step=global_step)
+                    writer.add_scalar('lr', lr_scheduler.get_last_lr()[0], global_step=global_step)
+                val_acc = 0
+                if global_step % eval_steps == 0:
+                    torch.cuda.empty_cache()
+                    model.eval() 
+                    if accelerator.is_main_process:
+                        print('eval...')
+                        pbar = tqdm(total=len(val_dataloader))
+                    val_metric = SFTMetric(torch.cuda.current_device())
+                    for input_ids, attention_mask, labels in val_dataloader:
+                        with torch.no_grad():
+                            output = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels, return_dict=True)
+
+                        val_metric(output.logits, labels, output.loss)
+                        if accelerator.is_main_process:
+                            pbar.update(1)
+
+                    val_acc, val_loss = val_metric.get_metric()
+
+                    
+                        
+                    if accelerator.is_local_main_process:
+                        writer.add_scalar(f'val_loss', val_loss, global_step=global_step)
+                        writer.add_scalar(f'val_acc', val_acc, global_step=global_step)
+                        accelerator.print(f"Epoch: {epoch}, Step: {batch_cnt}, Val loss: {val_loss}, Val acc: {val_acc}")
+
+                        logger.info(f'val_loss:{val_loss}, global_step{global_step}' )
+                        logger.info(f'val_acc:{val_acc},global_step:{global_step}')
+                        logger.info(f"Epoch: {epoch}, Step: {batch_cnt}, Val loss: {val_loss}, Val acc: {val_acc}")
+                    if accelerator.is_main_process:
+                        print('eval finished!!')
+                        pbar.close()
+                    model.train()           
+
+                    if val_acc>best_acc:
+                        best_acc = val_acc
+                        model.save_checkpoint(args.output_dir, global_step)
+                        logger.info("*"*10+'\n')
+                        logger.info(f'best val_acc:f{val_acc},global_step:{global_step}')
+                        #accelerator.barrier()
+
+            if accelerator.is_main_process:
+                pbar_train.close()
+        #if global_step % args.save_step != 0:
+        #    model.save_checkpoint(args.output_dir, global_step)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Args of sft')
 
     # Model Args
-    parser.add_argument('--model_name_or_path', default='/mnt/application/leyf/llm_zoo/bloom7b1', type=str)
+    parser.add_argument('--model_name_or_path', default='./ckpts/moss-16B-base', type=str)
     
     # Data Args
-    parser.add_argument('--data_dir', default='../data/split_data', type=str)
-    parser.add_argument('--output_dir', default='../output/test', type=str)
-    parser.add_argument('--log_dir', default='../output/test', type=str)
+    parser.add_argument('--data_dir', default='./data/sft', type=str)
+    parser.add_argument('--output_dir', default='./ckpts/moss-16B-sft', type=str)
+    parser.add_argument('--log_dir', default='./train_logs/moss-16B-sft', type=str)
     
     # Training Args
     parser.add_argument('--max_seq_len', default=2048, type=int)
