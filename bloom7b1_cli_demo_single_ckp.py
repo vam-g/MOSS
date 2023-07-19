@@ -64,7 +64,7 @@ if num_gpus > 1:
     # add special token
     special_tokens_dict = {'additional_special_tokens': ['<eoc>','<eoh>','<eom>','<eor>','<eot>']}
     tokenizer.add_special_tokens(special_tokens_dict)
-    #model.resize_token_embeddings(len(tokenizer))
+    model.resize_token_embeddings(len(tokenizer))
       #model = load_checkpoint_and_dispatch(
       #   raw_model, model_path, device_map="auto", no_split_module_classes=["MossBlock"], dtype=torch.float16
       # )
@@ -75,10 +75,12 @@ else: # on a single gpu
     # add special token
     special_tokens_dict = {'additional_special_tokens': ['<eoc>','<eoh>','<eom>','<eor>','<eot>']}
     tokenizer.add_special_tokens(special_tokens_dict)
-    #model.resize_token_embeddings(len(tokenizer))
+    model.resize_token_embeddings(len(tokenizer))
       
     #unwrapped_model = accelerator.unwrap_model(model)
     model.load_state_dict(torch.load(os.path.join(args.output_dir,'pytorch_model.bin'), map_location=torch.device('cuda')),strict =True)
+
+#model.resize_token_embeddings(250880)
 #print('model,', model)
 
 model.cuda()
