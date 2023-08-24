@@ -160,6 +160,7 @@ class SFTDataset(Dataset):
     
     def __getitem__(self, index):
         data = copy.deepcopy(self.data[index])
+        iquery = copy.deepcopy(self.samples[index])
         #no_loss_spans = copy.deepcopy(self.no_loss_spans[index])
         #print('data:', data)
         #data = [1,2,3,4,5]
@@ -170,25 +171,27 @@ class SFTDataset(Dataset):
         #for no_loss_span in no_loss_spans:
         #    label[no_loss_span[0] : no_loss_span[1]] = -100
 
-        return data, attn_mask#, label
+        return data, attn_mask, iquery
     
     def collate_fn(self, batch):
-        batch_input_ids, batch_attn_mask = [], []
-        for input_ids, attn_mask in batch:
+        batch_input_ids, batch_attn_mask, querys = [], [], []
+        for input_ids, attn_mask, iquery in batch:
             batch_input_ids.append(input_ids)
             batch_attn_mask.append(attn_mask)
-            #batch_labels.append(label)
+            querys.append(iquery)
 
         batch_input_ids = torch.nn.utils.rnn.pad_sequence(batch_input_ids, batch_first=True, padding_value=self.tokenizer.eos_token_id)
         batch_attn_mask = torch.nn.utils.rnn.pad_sequence(batch_attn_mask, batch_first=True, padding_value=0)#.to(torch.bool)
         #batch_labels = torch.nn.utils.rnn.pad_sequence(batch_labels, batch_first=True, padding_value=-100)
 
-        return batch_input_ids, batch_attn_mask#, batch_labels
+        return batch_input_ids, batch_attn_mask,querys#, batch_labels
 
 def main():
 
 
     #rank = dist.get_rank()
+    local_rank = int(os.getenv("LOCAL_RANK", "0"))
+    print('local_rank:', local_rank)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_name", default="/data/application/leyf/llm_zoo/llama65b_random", type=str)
@@ -198,7 +201,7 @@ def main():
     args = parser.parse_args()
 
 
-    accelerator = Accelerator(mixed_precision='no') 
+    accelerator = Accelerator(mixed_precision='fp16') 
     accelerator.state.deepspeed_plugin.deepspeed_config['train_micro_batch_size_per_gpu'] = 1
 
 
@@ -206,7 +209,7 @@ def main():
     # set logging
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
         datefmt='%m/%d/%Y %H:%M:%S',
-        level=logging.INFO, filename=os.path.join(args.output_dir, 'QA_log.txt'), filemode='a')
+        level=logging.INFO, filename=os.path.join(args.output_dir, f'QA_log_{local_rank}.txt'), filemode='a')
     logger = logging.getLogger(__name__)
 
     #os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
@@ -250,10 +253,12 @@ def main():
     prompt = meta_instruction
     print("欢迎使用 LLAMA 人工智能助手！输入内容即可进行对话。输入 clear 以清空对话历史，输入 stop 以终止对话。")
     index = 0
-    for input_ids, attention_mask in tqdm((test_dataloader)):
+    for input_ids, attention_mask, querys in tqdm((test_dataloader)):
+        print('querys:', querys)
+        assert len(querys)==1
         print('input_ids:', input_ids, attention_mask)
         #input_ids, attention_mask = batch
-        query = web_q[index] #input("<|Human|>: ")
+        query = querys[0] #input("<|Human|>: ")
         index+=1
         #prompt = '<|Human|>: ' + query + '<eoh>'
         # logging
@@ -300,7 +305,7 @@ def main():
         logger.info(f'time:{datetime.now()}')
         logger.info(f'Question:{query}')
         logger.info(f'Answer:{t_response}')
-    pd.DataFrame(res).to_csv(os.path.join(args.output_dir,'LLAMA_100Q_A_fp16.csv'))
+    pd.DataFrame(res).to_csv(os.path.join(args.output_dir,f'LLAMA65b_localrank{local_rank}100Q_A_fp16.csv'))
     
 if __name__ == "__main__":
     main()
