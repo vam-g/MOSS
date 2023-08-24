@@ -26,7 +26,7 @@ from deepspeed.utils.zero_to_fp32 import load_state_dict_from_zero_checkpoint
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--model_name", default="/mnt/application/leyf/llm_zoo/bloom7b1", 
+parser.add_argument("--model_name", default="/data/application/leyf/llm_zoo/bloom7b1", 
                     choices=["fnlp/moss-moon-003-sft", 
                              "fnlp/moss-moon-003-sft-int8", 
                              "fnlp/moss-moon-003-sft-int4"], type=str)
@@ -34,7 +34,8 @@ parser.add_argument("--gpu", default="0", type=str)
 
 # /mnt/application/leyf/llm_zoo/mmm/output/20230606bloom7b1-duojiduoka
 # /mnt/application/leyf/ds_chat/rlhf_output/20230726__newpara_1ppepoch_add_specialtoken_bloom7b1_from_sft/actor/
-parser.add_argument("--output_dir", default="/mnt/application/leyf/llm_zoo/mmm/output/20230606bloom7b1-duojiduoka", 
+# /mnt/application/leyf/llm_zoo/bloomz560m
+parser.add_argument("--output_dir", default="/mnt/application/leyf/ds_chat/rlhf_output/20230726__newpara_1ppepoch_add_specialtoken_bloom7b1_from_sft/actor/", 
                      type=str)
 args = parser.parse_args()
 #accelerator = Accelerator(mixed_precision='fp16') 
@@ -79,7 +80,7 @@ else: # on a single gpu
     # add special token
     special_tokens_dict = {'additional_special_tokens': ['<eoc>','<eoh>','<eom>','<eor>','<eot>']}
     tokenizer.add_special_tokens(special_tokens_dict)
-    model.resize_token_embeddings(250685)
+    model.resize_token_embeddings(250688) # 250685
       
     #unwrapped_model = accelerator.unwrap_model(model)
     model.load_state_dict(torch.load(os.path.join(args.output_dir,'pytorch_model.bin'), map_location=torch.device('cuda')),strict =True)
@@ -121,38 +122,49 @@ def main():
         def get_prompt_func(example):
             #print(dataset['val'][0])
             # {'id': 0, 'question': '使用位填充方法，以01111110为位首flag，数据为011011111111111111110010，求问传送时要添加几个0____', 'A': '1', 'B': '2', 'C': '3', 'D': '4', 'answer': 'C', 'explanation': ''}
-            print('example:', example)
+            #print('example:', example)
+            #print("example['A']:", example['A'])
             question=f'''
             以下是中国关于{iname}考试的单项选择题，请选出其中的正确答案。
-            {example['question']}
-            A. {example['A']}
-            B. {example['B']}
-            C. {example['C']}
-            D. {example['D']}
-            '''
-            prompt = meta_instruction+ f"[Human]: {question}<eoh>\n<|Inner Thoughts|>: None<eot>\n<|Commands|>: None<eoc>\n<|Results|>: None<eor>\n[MOSS]: "
+            '''+example['question']+'''\nA. '''+example['A'] \
+            +'''\nB. '''+example['B'] \
+            +'''\nC. '''+example['C'] \
+            +'''\nD. '''+example['D']
+            
+            prompt = meta_instruction+ f"[Human]: "+question+"<eoh>\n<|Inner Thoughts|>: None<eot>\n<|Commands|>: None<eoc>\n<|Results|>: None<eor>\n[MOSS]: "
 
             logger.info('*'*20)
             logger.info(f'question:{prompt}')
             logger.info('*'*20)
-            res = tokenizer(prompt,truncation='only_first' ,max_length=200, padding='max_length', return_tensors="pt")
-            print(res.input_ids.shape)
-            print(res.attention_mask.shape)
-            return res
+            print('prompt:', prompt)
+            #res = tokenizer(prompt,truncation='only_first' ,max_length=200, padding='max_length', return_tensors="pt")
+            #print("res.input_ids.shape:", res.input_ids.shape)
+            #print("res.attention_mask.shape:", res.attention_mask.shape)
+            result ={}
+            result['prompt'] = prompt
+            return result #res.input_ids, res.attention_mask
 
         #def tokenizing_func(example):
+        def coll_fn(examples):
+            # TODO coll_fn操作
+            #print('coll_fn:', examples)
+            prompt_list = []
+            for iex in examples:
+                prompt_list.append(iex['prompt'])
+            res = tokenizer(prompt_list,truncation='only_first' ,max_length=200, padding='max_length', return_tensors="pt")
+            return res.input_ids.cuda(), res.attention_mask.cuda(),prompt_list
 
 
         tokenizerd_ds = test_ds.map(get_prompt_func, batched=False, num_proc=4)
-        dataloader = DataLoader(tokenizerd_ds, batch_size=4, shuffle= False)
+        dataloader = DataLoader(tokenizerd_ds, batch_size=4, shuffle= False, collate_fn=coll_fn)
 
-        for batch in (dataloader):
+        for input_ids, attention_mask, prompt_list in (dataloader):
             #print(f'torch.cuda.is_available():{torch.cuda.is_available()}')
             batch_todevice ={}
-            print("batch:", batch)
+            #print("input_ids, attention_mask:", input_ids, attention_mask)
 
-            batch_todevice['input_ids'] = batch['input_ids']
-            batch_todevice['attention_mask'] = batch['attention_mask']
+            batch_todevice['input_ids'] = input_ids
+            batch_todevice['attention_mask'] = attention_mask
 
             with torch.no_grad():
                 #print(inputs.input_ids)
@@ -163,18 +175,29 @@ def main():
                     do_sample=False, 
                     top_k=1, 
                     temperature=1,
-                    repetition_penalty=1.02,
                     num_return_sequences=1, #eos_token_id=106068,
                     pad_token_id=tokenizer.pad_token_id)
-                response = tokenizer.decode(outputs[0][batch_todevice['input_ids'].shape[1]:], skip_special_tokens=True)
-                prompt += response
-                print(response.lstrip('\n').split('[Human]')[0]) #去掉多余的生成
-                t_response = response.lstrip('\n').split('[Human]')[0]
+                
+                print("outputs shape", outputs.shape)
+                 
+                print('output_id:',outputs.shape, outputs[:,batch_todevice['input_ids'].shape[1]:])
+                output_valid = outputs[:,batch_todevice['input_ids'].shape[1]:]
+                
+                response =  []
+                for iout in output_valid:
+                    ires = tokenizer.decode(iout, skip_special_tokens=True)
+                    ires = ires.lstrip('\n').split('[Human]')[0]
+                    response.append(ires)
+                #prompt += response
+                #print(response.lstrip('\n').split('[Human]')[0]) #去掉多余的生成
+                #t_response = response.lstrip('\n').split('[Human]')[0]
+            print('question:', prompt_list)
+            print('response:', response)
         # logging
         logger.info('*'*20)
         logger.info(f'time:{datetime.now()}')
         #logger.info(f'Question:{query}')
-        logger.info(f'Answer:{t_response}')
+        #logger.info(f'Answer:{t_response}')
     
 if __name__ == "__main__":
     main()
