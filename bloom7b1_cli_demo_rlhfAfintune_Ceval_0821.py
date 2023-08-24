@@ -3,7 +3,8 @@ import os
 import platform
 import warnings
 import logging
-
+import json
+import re
 
 from datetime import datetime
 
@@ -25,8 +26,9 @@ from deepspeed.utils.zero_to_fp32 import load_state_dict_from_zero_checkpoint
 
 
 
+model_path = '/mnt/application/leyf/llm_zoo/bloomz560m'
 parser = argparse.ArgumentParser()
-parser.add_argument("--model_name", default="/data/application/leyf/llm_zoo/bloom7b1", 
+parser.add_argument("--model_name", default=model_path, 
                     choices=["fnlp/moss-moon-003-sft", 
                              "fnlp/moss-moon-003-sft-int8", 
                              "fnlp/moss-moon-003-sft-int4"], type=str)
@@ -35,7 +37,7 @@ parser.add_argument("--gpu", default="0", type=str)
 # /mnt/application/leyf/llm_zoo/mmm/output/20230606bloom7b1-duojiduoka
 # /mnt/application/leyf/ds_chat/rlhf_output/20230726__newpara_1ppepoch_add_specialtoken_bloom7b1_from_sft/actor/
 # /mnt/application/leyf/llm_zoo/bloomz560m
-parser.add_argument("--output_dir", default="/mnt/application/leyf/ds_chat/rlhf_output/20230726__newpara_1ppepoch_add_specialtoken_bloom7b1_from_sft/actor/", 
+parser.add_argument("--output_dir", default=model_path, 
                      type=str)
 args = parser.parse_args()
 #accelerator = Accelerator(mixed_precision='fp16') 
@@ -80,10 +82,10 @@ else: # on a single gpu
     # add special token
     special_tokens_dict = {'additional_special_tokens': ['<eoc>','<eoh>','<eom>','<eor>','<eot>']}
     tokenizer.add_special_tokens(special_tokens_dict)
-    model.resize_token_embeddings(250688) # 250685
+    #model.resize_token_embeddings(250688) # 250685
       
     #unwrapped_model = accelerator.unwrap_model(model)
-    model.load_state_dict(torch.load(os.path.join(args.output_dir,'pytorch_model.bin'), map_location=torch.device('cuda')),strict =True)
+    #model.load_state_dict(torch.load(os.path.join(args.output_dir,'pytorch_model.bin'), map_location=torch.device('cuda')),strict =True)
 
 #model.resize_token_embeddings(250880)
 #print('model,', model)
@@ -106,15 +108,33 @@ def get_dataset(iname):
     return dataset
     
 
+def get_res_from_str(res_str):
+    # 通过re从答案中抽取A/B/C/D选项
+    pattern = r'[A-Za-z]'
+    match = re.search(pattern, res_str)
+    if match:
+        res_str = match.group()
+        
+        if res_str  not in ['A','B','C','D']:
+            return 'A'
+        return res_str
+    else:
+        return 'A'
+
+
+
 def main():
 
     meta_instruction = "我是人工智能助手Happy! 能够帮助大家解决通识问题，我的目标是方便人类的生活，不创造或者生成任何有悖法律的回答，敬请提问！"
-
+    out_put_path ='../bloom7b_ceval.json'
+    #保存结果
+    res_map = {}
     prompt = meta_instruction
     print("欢迎使用 MOSS 人工智能助手！输入内容即可进行对话。输入 clear 以清空对话历史，输入 stop 以终止对话。")
     #if True:
     for iname in name:
         dataset = get_dataset(iname)
+        res_map[iname]={}
 
         test_ds = dataset['test']
         #clo_name = test_ds['test'].columns_name
@@ -149,16 +169,18 @@ def main():
             # TODO coll_fn操作
             #print('coll_fn:', examples)
             prompt_list = []
+            index_list = []
             for iex in examples:
                 prompt_list.append(iex['prompt'])
+                index_list.append(str(iex['id']))
             res = tokenizer(prompt_list,truncation='only_first' ,max_length=200, padding='max_length', return_tensors="pt")
-            return res.input_ids.cuda(), res.attention_mask.cuda(),prompt_list
+            return res.input_ids.cuda(), res.attention_mask.cuda(),prompt_list, index_list
 
 
         tokenizerd_ds = test_ds.map(get_prompt_func, batched=False, num_proc=4)
         dataloader = DataLoader(tokenizerd_ds, batch_size=4, shuffle= False, collate_fn=coll_fn)
 
-        for input_ids, attention_mask, prompt_list in (dataloader):
+        for input_ids, attention_mask, prompt_list,index_list in (dataloader):
             #print(f'torch.cuda.is_available():{torch.cuda.is_available()}')
             batch_todevice ={}
             #print("input_ids, attention_mask:", input_ids, attention_mask)
@@ -187,17 +209,30 @@ def main():
                 for iout in output_valid:
                     ires = tokenizer.decode(iout, skip_special_tokens=True)
                     ires = ires.lstrip('\n').split('[Human]')[0]
-                    response.append(ires)
+                    response.append(get_res_from_str(ires))
                 #prompt += response
                 #print(response.lstrip('\n').split('[Human]')[0]) #去掉多余的生成
                 #t_response = response.lstrip('\n').split('[Human]')[0]
-            print('question:', prompt_list)
-            print('response:', response)
+            #print('question:', prompt_list)
+            #print('response:', response)
+            for iq, ires in zip(prompt_list, response):
+                print('****\n')
+                print('q:', iq)
+                print('ires:', ires)
+            # add_Res
+            for index_str, ires in zip(index_list, response):
+                res_map[iname][index_str] = ires
+
+
         # logging
         logger.info('*'*20)
         logger.info(f'time:{datetime.now()}')
         #logger.info(f'Question:{query}')
         #logger.info(f'Answer:{t_response}')
+    # save:
+    with open(out_put_path, 'w') as f:
+        json.dump(res_map, f)
+
     
 if __name__ == "__main__":
     main()
